@@ -14,6 +14,7 @@ import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { props, type PropAsset } from "@/data/catalog";
 import { bodies, bodyIds, pileBus, emitPile } from "./bus";
+import { liveLimit } from "./device";
 import { getPile, savePile, type PileRow } from "./store";
 
 const CATALOG_URL = "https://raw.githubusercontent.com/maximusmaximus/simready-pile/fdb1870/catalog.json";
@@ -426,6 +427,8 @@ function Spawner() {
   const queue = useRef<PropAsset[] | null>(null);
   const ready = useRef(false);
   const batch = useRef(1);
+  const limit = useRef(Number.POSITIVE_INFINITY);
+  const live = useRef(0);
   const waveLeft = useRef(0);
   const falling = useRef(false);
   const landAt = useRef(0);
@@ -433,7 +436,7 @@ function Spawner() {
   const nextDrop = useRef(0);
 
   const beginWave = (remaining: number) => {
-    const count = Math.min(remaining, batch.current);
+    const count = Math.min(remaining, batch.current, limit.current - live.current);
     if (count <= 0) {
       falling.current = false;
       pileBus.moreReady = false;
@@ -461,11 +464,13 @@ function Spawner() {
       const library = await loadAssets();
       if (stop) return;
       const saved = new Map(rows.filter((row) => row.settled).map((row) => [row.id, row]));
+      limit.current = liveLimit();
       const resting: Drop[] = [];
       const pending: PropAsset[] = [];
       for (const asset of library) {
         const row = saved.get(asset.id);
         if (row) {
+          if (resting.length >= limit.current) continue;
           resting.push({
             key: asset.id,
             asset,
@@ -485,6 +490,7 @@ function Spawner() {
         pending[j] = swap;
       }
       queue.current = pending;
+      live.current = resting.length;
       ready.current = true;
       batch.current = Math.max(1, Math.round((resting.length + pending.length) * 0.01));
       setDrops(resting);
@@ -522,12 +528,15 @@ function Spawner() {
           rotation: [Math.random() * Math.PI, Math.random() * Math.PI * 2, Math.random() * Math.PI],
         });
       }
-      if (next.length) setDrops((prev) => [...prev, ...next]);
+      if (next.length) {
+        live.current += next.length;
+        setDrops((prev) => [...prev, ...next]);
+      }
       if (waveLeft.current === 0) landAt.current = performance.now() + 1400;
     }
     if (!falling.current || waveLeft.current > 0 || performance.now() < landAt.current) return;
     falling.current = false;
-    pileBus.moreReady = pending.length > 0;
+    pileBus.moreReady = pending.length > 0 && live.current < limit.current;
     emitPile();
   });
 
