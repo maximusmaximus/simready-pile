@@ -15,6 +15,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { props, type PropAsset } from "@/data/catalog";
 import { bodies, bodyIds, pileBus, emitPile } from "./bus";
 import { liveLimit } from "./device";
+import { limitLoads } from "./glb-queue";
 import { getPile, savePile, type PileRow } from "./store";
 
 const CATALOG_URL = "https://raw.githubusercontent.com/maximusmaximus/simready-pile/fdb1870/catalog.json";
@@ -264,7 +265,8 @@ function Prop({
   quat?: { x: number; y: number; z: number; w: number };
   settled?: boolean;
 }) {
-  const gltf = useGLTF(asset.url);
+  // The GLBs have no Draco or Meshopt data, so skip those decoders.
+  const gltf = useGLTF(asset.url, false, false, limitLoads);
   const body = useRef<RapierRigidBody>(null);
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
