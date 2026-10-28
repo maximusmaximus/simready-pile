@@ -252,6 +252,34 @@ class QuietBoundary extends Component<{ children: ReactNode }, { failed: boolean
   }
 }
 
+const prepared = new WeakSet<THREE.Object3D>();
+
+// A clone shares geometry and materials with its source, so the source needs
+// this work once for all copies of an asset.
+function prepareScene(source: THREE.Object3D) {
+  if (prepared.has(source)) return source;
+  prepared.add(source);
+  source.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.castShadow = !onPhone();
+    mesh.receiveShadow = !onPhone();
+    mesh.geometry.computeVertexNormals();
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of mats) {
+      const standard = mat as THREE.MeshStandardMaterial;
+      standard.side = THREE.DoubleSide;
+      standard.transparent = false;
+      standard.opacity = 1;
+      standard.depthWrite = true;
+      standard.metalness = 0;
+      standard.roughness = 0.62;
+      if (standard.color) standard.color.set(0xffffff);
+    }
+  });
+  return source;
+}
+
 function Prop({
   asset,
   position,
@@ -279,30 +307,8 @@ function Prop({
   const grabOffset = useRef(new THREE.Vector3());
   const velocity = useRef(new THREE.Vector3());
   const normal = useRef(new THREE.Vector3());
-  const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
+  const scene = useMemo(() => prepareScene(gltf.scene).clone(true), [gltf.scene]);
   const pick = useMemo(() => pickBox(asset.hull), [asset.hull]);
-
-  useEffect(() => {
-    scene.traverse((obj) => {
-      const mesh = obj as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      mesh.castShadow = !onPhone();
-      mesh.receiveShadow = !onPhone();
-      mesh.geometry.computeVertexNormals();
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const mat of mats) {
-        const standard = mat as THREE.MeshStandardMaterial;
-        standard.side = THREE.DoubleSide;
-        standard.transparent = false;
-        standard.opacity = 1;
-        standard.depthWrite = true;
-        standard.metalness = 0;
-        standard.roughness = 0.62;
-        if (standard.color) standard.color.set(0xffffff);
-        standard.needsUpdate = true;
-      }
-    });
-  }, [scene]);
 
   useEffect(() => {
     const current = body.current;
