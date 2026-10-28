@@ -14,7 +14,7 @@ import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { props, type PropAsset } from "@/data/catalog";
 import { bodies, bodyIds, pileBus, emitPile } from "./bus";
-import { liveLimit } from "./device";
+import { liveLimit, onPhone } from "./device";
 import { limitLoads } from "./glb-queue";
 import { getPile, savePile, type PileRow } from "./store";
 
@@ -55,7 +55,7 @@ function Lights({ lit }: { lit: boolean }) {
         position={[7, 12, 5]}
         intensity={lit ? 2.8 : 0.38}
         color={lit ? "#fffaf2" : "#ffe0b0"}
-        castShadow
+        castShadow={!onPhone()}
         shadow-mapSize={[1024, 1024]}
         shadow-camera-near={2}
         shadow-camera-far={28}
@@ -286,8 +286,8 @@ function Prop({
     scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+      mesh.castShadow = !onPhone();
+      mesh.receiveShadow = !onPhone();
       mesh.geometry.computeVertexNormals();
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const mat of mats) {
@@ -794,13 +794,15 @@ function Stage({ lit }: { lit: boolean }) {
 }
 
 export function PileCanvas({ lit }: { lit: boolean }) {
+  // A phone draws no shadows, no antialiasing and one pixel per CSS pixel.
+  const phone = onPhone();
   return (
     <Canvas
       className="h-full w-full touch-none"
-      shadows
-      dpr={[1, 1.5]}
+      shadows={!phone}
+      dpr={phone ? 1 : [1, 1.5]}
       camera={{ position: [0, 6.2, 10.8], fov: 40, near: 0.08, far: 80 }}
-      gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
+      gl={{ antialias: !phone, alpha: false, powerPreference: "high-performance" }}
       onPointerMissed={() => {
         pileBus.dragging = false;
       }}
