@@ -1,24 +1,19 @@
 # simready-pile
 
-**Play it:** [stuff.grok.me](https://stuff.grok.me)
+**[stuff.grok.me](https://stuff.grok.me)**
 
-A full-screen phone pile of NVIDIA SimReady props and the [Amazon Berkeley Objects](https://huggingface.co/datasets/codepawl/abo-glb) models. The lights start on. One percent of the library drops into a ring, tilted so you can see things land flat. Tap **More Stuff** for the next percent. Tilt the phone and gravity follows. Drag an object to flick it.
+A full-screen physics pile for the phone. [NVIDIA SimReady](https://huggingface.co/datasets/nvidia/simready-assets) props and [Amazon Berkeley Objects](https://huggingface.co/datasets/codepawl/abo-glb) drop into one ring. Each visit is a new random set. An object never falls twice.
 
-On a phone the pile keeps at most 150 objects, draws no shadows or antialiasing, and loads four files at a time. A phone has a touch screen and a short side under 820 CSS pixels.
+Tilt the phone and gravity follows. Drag anything to move it. **More Stuff** releases the next batch. The bulb on the left is the light. The **i** on the right opens this repo.
 
-The bulb on the left of More Stuff turns the room lights on and off. The **i** on the right opens this repo.
+![The pile along the bottom of a phone](docs/pile-phone.png)
 
-![The pile on a phone, with the light, More Stuff, and info controls along the bottom](docs/pile-phone.png)
+## Assets
 
-![The same pile a little wider, still framed along the bottom of the screen](docs/pile-wide.png)
-
-## What's here
-
-- The viewer in `src/` — React Three Fiber and Rapier, with device tilt for gravity
-- `catalog.json` — id, mass, convex hull, and mesh url for each prop
-- `glb/` — one simplified mesh per asset
-
-Source assets are [nvidia/simready-assets](https://huggingface.co/datasets/nvidia/simready-assets), CC BY 4.0, NVIDIA, and [codepawl/abo-glb](https://huggingface.co/datasets/codepawl/abo-glb), CC BY 4.0, Amazon Berkeley Objects. These files are scaled, simplified derivatives. The originals stay on Hugging Face.
+| Source | License | In this repo |
+| --- | --- | --- |
+| [nvidia/simready-assets](https://huggingface.co/datasets/nvidia/simready-assets) | CC BY 4.0, NVIDIA | `glb/` and `catalog.json`, scaled and simplified |
+| [codepawl/abo-glb](https://huggingface.co/datasets/codepawl/abo-glb) | CC BY 4.0, Amazon Berkeley Objects | `public/abo-catalog.json`. Meshes load from Hugging Face |
 
 ## Run
 

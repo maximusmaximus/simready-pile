@@ -4,6 +4,7 @@ export type PropAsset = {
   url: string
   mass: number
   hull: number[]
+  scale?: number
 }
 
 export const props: PropAsset[] = [

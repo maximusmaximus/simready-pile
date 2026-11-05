@@ -15,26 +15,43 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { props, type PropAsset } from "@/data/catalog";
 import { bodies, bodyIds, pileBus, emitPile } from "./bus";
 import { liveLimit, onPhone } from "./device";
-import { limitLoads } from "./glb-queue";
-import { getPile, savePile, type PileRow } from "./store";
+import { limitLoads, bindKtx2 } from "./glb-queue";
+import { savePile, type PileRow } from "./store";
 
 const CATALOG_URL = "https://raw.githubusercontent.com/maximusmaximus/simready-pile/fdb1870/catalog.json";
 
+function usable(data: PropAsset[]) {
+  return data.filter((asset) => asset?.id && asset.url && Array.isArray(asset.hull) && asset.hull.length >= 12);
+}
+
 async function loadAssets(): Promise<PropAsset[]> {
-  try {
-    const res = await fetch(CATALOG_URL);
-    if (!res.ok) return props;
-    const data = (await res.json()) as PropAsset[];
-    if (!Array.isArray(data) || data.length < props.length) return props;
-    return data
-      .filter((asset) => asset?.id && asset.url && Array.isArray(asset.hull) && asset.hull.length >= 12)
-      .map((asset) => ({
-        ...asset,
-        url: `https://raw.githubusercontent.com/maximusmaximus/simready-pile/fdb1870/glb/${asset.id}.glb`,
-      }));
-  } catch {
-    return props;
-  }
+  const [sim, abo] = await Promise.all([
+    (async () => {
+      try {
+        const res = await fetch(CATALOG_URL);
+        if (!res.ok) return props;
+        const data = (await res.json()) as PropAsset[];
+        if (!Array.isArray(data) || data.length < props.length) return props;
+        return usable(data).map((asset) => ({
+          ...asset,
+          url: `https://raw.githubusercontent.com/maximusmaximus/simready-pile/fdb1870/glb/${asset.id}.glb`,
+        }));
+      } catch {
+        return props;
+      }
+    })(),
+    (async () => {
+      try {
+        const res = await fetch("/abo-catalog.json");
+        if (!res.ok) return [];
+        const data = (await res.json()) as PropAsset[];
+        return Array.isArray(data) ? usable(data) : [];
+      } catch {
+        return [];
+      }
+    })(),
+  ]);
+  return [...sim, ...abo];
 }
 
 type Drop = {
@@ -293,8 +310,8 @@ function Prop({
   quat?: { x: number; y: number; z: number; w: number };
   settled?: boolean;
 }) {
-  // The GLBs have no Draco or Meshopt data, so skip those decoders.
-  const gltf = useGLTF(asset.url, false, false, limitLoads);
+  // SimReady meshes are plain GLB. ABO meshes are meshopt-compressed.
+  const gltf = useGLTF(asset.url, false, true, limitLoads);
   const body = useRef<RapierRigidBody>(null);
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
@@ -307,7 +324,12 @@ function Prop({
   const grabOffset = useRef(new THREE.Vector3());
   const velocity = useRef(new THREE.Vector3());
   const normal = useRef(new THREE.Vector3());
-  const scene = useMemo(() => prepareScene(gltf.scene).clone(true), [gltf.scene]);
+  const scene = useMemo(() => {
+    const clone = prepareScene(gltf.scene).clone(true);
+    const scale = asset.scale ?? 1;
+    if (scale !== 1) clone.scale.multiplyScalar(scale);
+    return clone;
+  }, [gltf.scene, asset.scale]);
   const pick = useMemo(() => pickBox(asset.hull), [asset.hull]);
 
   useEffect(() => {
@@ -430,6 +452,62 @@ function Prop({
   );
 }
 
+const LAST_KEY = "pile-last-ids";
+
+function readLastIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(LAST_KEY);
+    const ids = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(ids) ? ids.filter((id) => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeLastIds(ids: string[]) {
+  try {
+    localStorage.setItem(LAST_KEY, JSON.stringify(ids.slice(-4000)));
+  } catch {
+    // private mode and full storage can refuse the write
+  }
+}
+
+function shuffleAssets(assets: PropAsset[]) {
+  for (let i = assets.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const swap = assets[i]!;
+    assets[i] = assets[j]!;
+    assets[j] = swap;
+  }
+  return assets;
+}
+
+function rememberIds(ids: string[]) {
+  const last = readLastIds();
+  for (const id of ids) last.add(id);
+  writeLastIds([...last]);
+}
+
+function freshQueue(library: PropAsset[]) {
+  const unique: PropAsset[] = [];
+  const seenIds = new Set<string>();
+  for (const asset of library) {
+    if (seenIds.has(asset.id)) continue;
+    seenIds.add(asset.id);
+    unique.push(asset);
+  }
+  const last = readLastIds();
+  let pool = unique.filter((asset) => !last.has(asset.id));
+  const minKeep = Math.max(8, Math.round(unique.length * 0.01));
+  if (pool.length < minKeep) {
+    const recent = [...last].slice(-minKeep * 2);
+    const block = new Set(recent);
+    pool = unique.filter((asset) => !block.has(asset.id));
+    writeLastIds(recent);
+  }
+  return shuffleAssets(pool);
+}
+
 function Spawner() {
   const [drops, setDrops] = useState<Drop[]>([]);
   const queue = useRef<PropAsset[] | null>(null);
@@ -462,46 +540,14 @@ function Spawner() {
   useEffect(() => {
     let stop = false;
     void (async () => {
-      let rows: PileRow[] = [];
-      try {
-        rows = await getPile();
-      } catch {
-        rows = [];
-      }
-      if (stop) return;
       const library = await loadAssets();
       if (stop) return;
-      const saved = new Map(rows.filter((row) => row.settled).map((row) => [row.id, row]));
       limit.current = liveLimit();
-      const resting: Drop[] = [];
-      const pending: PropAsset[] = [];
-      for (const asset of library) {
-        const row = saved.get(asset.id);
-        if (row) {
-          if (resting.length >= limit.current) continue;
-          resting.push({
-            key: asset.id,
-            asset,
-            position: [row.x, row.y, row.z],
-            rotation: [0, 0, 0],
-            quat: { x: row.rx, y: row.ry, z: row.rz, w: row.rw },
-            settled: true,
-          });
-        } else {
-          pending.push(asset);
-        }
-      }
-      for (let i = pending.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        const swap = pending[i]!;
-        pending[i] = pending[j]!;
-        pending[j] = swap;
-      }
+      const pending = freshQueue(library);
       queue.current = pending;
-      live.current = resting.length;
+      live.current = 0;
       ready.current = true;
-      batch.current = Math.max(1, Math.round((resting.length + pending.length) * 0.01));
-      setDrops(resting);
+      batch.current = Math.max(1, Math.round(library.length * 0.01));
       beginWave(pending.length);
     })();
     return () => {
@@ -523,6 +569,7 @@ function Spawner() {
         const asset = pending.pop()!;
         waveLeft.current -= 1;
         nextDrop.current += 110;
+        rememberIds([asset.id]);
         const angle = Math.random() * Math.PI * 2;
         const radius = Math.sqrt(Math.random()) * (AREA - 1.05);
         next.push({
@@ -785,6 +832,8 @@ function FrameView() {
 }
 
 function Stage({ lit }: { lit: boolean }) {
+  const gl = useThree((s) => s.gl);
+  bindKtx2(gl);
   return (
     <Physics gravity={[0, -18, 0]} timeStep={1 / 60} maxCcdSubsteps={6} contactNaturalFrequency={90}>
       <Backdrop lit={lit} />
